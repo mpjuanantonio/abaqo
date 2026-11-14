@@ -181,6 +181,7 @@ Inspirado en el Liquid Glass de Apple: el cristal se comporta como un líquido v
 
 Todo marcador de selección (item activo del sidebar, "Este año / Año pasado", pestañas de filtro, selector Día/Semana/Mes, mensaje seleccionado) usa este indicador, nunca un fondo que aparece de golpe.
 
+
 Anatomía:
 - **Cabeza**: gota con muelle casi críticamente amortiguado (k=260, c=30) que va al destino y anima también ancho y alto. Llega con desaceleración suave, sin rebote.
 - **Cola**: segunda gota al 92% del tamaño con muelle algo más lento (k=190, c=27). Va casi pegada a la cabeza; solo da un leve rastro.
