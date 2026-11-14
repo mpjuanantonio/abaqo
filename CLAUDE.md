@@ -33,6 +33,9 @@ non-trivial change. If code and that document disagree, stop and ask.
 - `npm run lint` / `npm run typecheck`
 - `npm run format` / `npm run format:check` — Prettier
 - `docker compose -f deploy/docker-compose.yml --profile dev up -d` — test Firefly + Postgres with fake data
+- `deploy/dev/bootstrap.sh` — create the dev Firefly user and its access token (gitignored)
+- `npm run seed -w api` — load the fake fixture into the dev Firefly (idempotent; refuses anything
+  that is not the dev instance; run bootstrap first)
 
 ## Non-negotiable rules
 
@@ -40,7 +43,9 @@ non-trivial change. If code and that document disagree, stop and ask.
 2. **Dates:** store UTC, compute months in `Europe/Madrid`. A budget month starts on the user's
    configured day (default 1), not on payday.
 3. **Never touch real data.** Only the `dev` stack and fixtures. Never read `.env`, `*.pem` or
-   anything under `deploy/secrets/`.
+   anything under `deploy/secrets/`. The `banktest` stack
+   (`deploy/docker-compose.banktest.yml`) holds the owner's real bank data:
+   agents never start it, query it or read its volumes.
 4. **Envelope balances are derived**, never stored as a loose number: sum of `envelope_entries`
    plus month spend from Firefly. Month close must be re-runnable.
 5. **Privacy:** only merchant description / Bizum concept, amount, date and category list may be

@@ -25,3 +25,7 @@ test-results/
 .claude/worktrees/
 .DS_Store
 *.log
+
+# Dev stack token created by deploy/dev/bootstrap.sh
+deploy/dev/.dev-token
+deploy/dev/importer-token.env

@@ -1,0 +1,153 @@
+# Abaqo Docker Compose (project `abaqo`). Profiles in THIS file:
+#   dev        implemented: throwaway Firefly III + Data Importer + Postgres with fake data
+#   full       PLACEHOLDER (will own the plain service names: postgres, firefly, importer, ...)
+#   companion  PLACEHOLDER
+#
+#   dev:       docker compose -f deploy/docker-compose.yml --profile dev up -d
+#
+# The owner-only real-bank test is NOT here: it lives in deploy/docker-compose.banktest.yml
+# (its own project, own lifecycle, external volumes) so that nothing done to dev can touch it.
+#
+# SECRETS AND `.env`. With `-f deploy/docker-compose.yml`, Compose uses deploy/ as the project
+# directory and AUTO-LOADS deploy/.env for ${VAR} interpolation (documented Compose behaviour;
+# `--env-file` replaces it). The dev services therefore contain NO ${VAR} interpolation at all
+# and read only the committed fake-value files deploy/dev/*.env, so deploy/.env can never leak
+# into them.
+#
+# env_file entries with `path:` / `required: false` need Docker Compose v2.24 or newer
+# (tested with 5.5.0; the exact release that added `required` could not be confirmed).
+#
+# Image versions verified on 2026-11-14:
+#   fireflyiii/core          version-6.7.9  https://github.com/firefly-iii/firefly-iii/releases (latest: v6.7.9)
+#   fireflyiii/data-importer version-2.3.5  https://github.com/firefly-iii/data-importer/releases (latest: v2.3.5)
+#   postgres                 18-alpine      https://hub.docker.com/_/postgres (PG 18 keeps data in /var/lib/postgresql)
+# Firefly env var names: https://github.com/firefly-iii/firefly-iii/blob/main/.env.example
+# Importer env var names (tag v2.3.5): https://github.com/firefly-iii/data-importer/blob/v2.3.5/.env.example
+# Reference compose: https://github.com/firefly-iii/docker/blob/main/docker-compose.yml
+
+name: abaqo
+
+# ---------------------------------------------------------------------------
+# Shared building blocks (YAML anchors). Profiles add only what differs.
+# ---------------------------------------------------------------------------
+x-postgres: &postgres
+  image: postgres:18-alpine
+  restart: unless-stopped
+  command:
+    ['postgres', '-c', 'shared_buffers=64MB', '-c', 'max_connections=40', '-c', 'timezone=UTC']
+  healthcheck:
+    # Real TCP queries (not the unix socket): the entrypoint's temporary init server only listens
+    # on the socket, so this passes only after init finished and both databases accept queries.
+    # 127.0.0.1 is "trust" in the official image's pg_hba.conf; PGPASSWORD is set anyway.
+    test:
+      - CMD-SHELL
+      - >-
+        export PGPASSWORD="$$POSTGRES_PASSWORD";
+        psql -h 127.0.0.1 -U postgres -d firefly -Atc "select 1" &&
+        psql -h 127.0.0.1 -U postgres -d abaqo -Atc "select 1"
+    interval: 5s
+    timeout: 5s
+    retries: 20
+    start_period: 10s
+  mem_limit: 256m
+
+x-firefly: &firefly
+  image: fireflyiii/core:version-6.7.9
+  restart: unless-stopped
+  healthcheck:
+    test: ['CMD-SHELL', 'curl -fsS http://localhost:8080/health >/dev/null']
+    interval: 10s
+    timeout: 5s
+    retries: 30
+    start_period: 60s
+  mem_limit: 512m
+
+x-importer: &importer
+  image: fireflyiii/data-importer:version-2.3.5
+  restart: unless-stopped
+  healthcheck:
+    test: ['CMD-SHELL', 'curl -fsS http://localhost:8080/health >/dev/null']
+    interval: 10s
+    timeout: 5s
+    retries: 20
+    start_period: 30s
+  mem_limit: 256m
+
+x-pg-tz: &pg-tz # Postgres always runs in UTC; Madrid time lives in Firefly and the importer.
+  TZ: UTC
+  PGTZ: UTC
+
+services:
+  # ===========================================================================
+  # PROFILE dev: fake data only. Isolated: own network and volumes (abaqo_dev_*),
+  # loopback-only ports, fake credentials from committed deploy/dev/*.env.
+  # ===========================================================================
+  dev-postgres:
+    <<: *postgres
+    profiles: [dev]
+    env_file: dev/postgres.env
+    environment: *pg-tz
+    ports:
+      - '127.0.0.1:15432:5432'
+    volumes:
+      - abaqo_dev_pgdata:/var/lib/postgresql
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    networks: [dev]
+
+  dev-firefly:
+    <<: *firefly
+    profiles: [dev]
+    env_file: dev/firefly.env
+    ports:
+      - '127.0.0.1:18080:8080'
+    volumes:
+      - abaqo_dev_firefly_upload:/var/www/html/storage/upload
+    depends_on:
+      dev-postgres:
+        condition: service_healthy
+    networks: [dev]
+
+  dev-importer:
+    <<: *importer
+    profiles: [dev]
+    env_file:
+      # Written by deploy/dev/bootstrap.sh (gitignored): FIREFLY_III_ACCESS_TOKEN=<dev token>.
+      # Optional: without it the importer asks for a token in its UI.
+      - path: dev/importer-token.env
+        required: false
+    environment:
+      # Internal address used server-side; VANITY_URL is what the browser is sent to.
+      FIREFLY_III_URL: http://dev-firefly:8080
+      VANITY_URL: http://127.0.0.1:18080
+      TRUSTED_PROXIES: '**'
+      TZ: Europe/Madrid
+      # No bank credentials here, ever: dev never gets real Enable Banking credentials.
+      # Real-bank tests use the owner-only stack in docker-compose.banktest.yml.
+    ports:
+      - '127.0.0.1:18081:8080'
+    depends_on:
+      dev-firefly:
+        condition: service_healthy
+    networks: [dev]
+
+  # ===========================================================================
+  # PROFILE full: PLACEHOLDER, not implemented yet. It will own the plain names
+  # (postgres, firefly, importer, importer-cron at 07:00 Europe/Madrid, abaqo-api, abaqo-web,
+  # ntfy) and read its secrets from deploy/.env only. Target: under 1.5 GB RAM in total.
+  # ===========================================================================
+
+  # ===========================================================================
+  # PROFILE companion: PLACEHOLDER, not implemented yet. Only abaqo-api and abaqo-web,
+  # pointing at an existing Firefly III through FIREFLY_URL / FIREFLY_TOKEN from deploy/.env.
+  # ===========================================================================
+
+networks:
+  dev:
+    name: abaqo_dev_net
+
+volumes:
+  # Explicit names so `down -v` resets everything and nothing collides with other stacks.
+  abaqo_dev_pgdata:
+    name: abaqo_dev_pgdata
+  abaqo_dev_firefly_upload:
+    name: abaqo_dev_firefly_upload
