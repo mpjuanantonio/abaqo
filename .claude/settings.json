@@ -1,0 +1,57 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(npx vitest *)",
+      "Bash(npx playwright *)",
+      "Bash(docker compose -f deploy/docker-compose.yml --profile dev *)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git switch *)",
+      "Bash(gh issue *)",
+      "Bash(gh pr *)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "Bash(docker *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./deploy/.env)",
+      "Read(./deploy/secrets/**)",
+      "Read(**/*.pem)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-files.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
