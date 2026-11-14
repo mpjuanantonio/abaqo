@@ -5,6 +5,7 @@ tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 skills:
   - mobile-ui
+  - spatial-glass-dashboard
 color: purple
 ---
 
