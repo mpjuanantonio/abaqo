@@ -27,10 +27,11 @@ non-trivial change. If code and that document disagree, stop and ask.
 (Keep this list in sync with package.json.)
 
 - `npm install` — install all workspaces
-- `npm run dev` — API + web in watch mode against the `dev` stack
+- `npm run dev` — API (port 3100) + web (port 5173) in watch mode against the `dev` stack
 - `npm run test` — unit tests (Vitest) in all workspaces
 - `npm run test:e2e` — Playwright e2e against the `dev` stack
 - `npm run lint` / `npm run typecheck`
+- `npm run format` / `npm run format:check` — Prettier
 - `docker compose -f deploy/docker-compose.yml --profile dev up -d` — test Firefly + Postgres with fake data
 
 ## Non-negotiable rules
