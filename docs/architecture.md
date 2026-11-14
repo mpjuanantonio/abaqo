@@ -82,7 +82,7 @@ Firefly III no reparte el dinero en sobres ([documentación](https://docs.firefl
 - **Orden fijo:** primero los traspasos de sobrante, después los ladrones y por último acumulativos y préstamos. Así un ladrón puede usar lo que acaba de entrar en Ahorro.
 - **Un ladrón nunca deja en negativo a su víctima:** la parte que no cubra pasa a ser préstamo.
 - **Cierre recalculable:** guarda una foto del mes, y si entra un movimiento atrasado de un mes ya cerrado, se recalcula ese cierre y los siguientes.
-- **Reembolsos:** un Bizum recibido por un gasto compartido resta gasto de esa categoría en lugar de contar como ingreso.
+- **Reembolsos:** un Bizum recibido por un gasto compartido no cuenta como ingreso: reduce lo que te deben, porque tu sobre ya contó solo tu parte.
 
 ### Sobres y subcategorías
 
@@ -104,7 +104,7 @@ Además del sueldo, cualquier dinero inesperado se suma a lo disponible del mes,
 
 - **Detección:** todo ingreso que no sea el sueldo (una devolución de Hacienda, una venta de segunda mano, un regalo) entra en la bandeja como ingreso.
 - **Reparto:** se puede asignar a un sobre, repartir entre varios (importe o %) o dejarlo en Ahorro, que es la opción por defecto si no lo tocas antes del cierre.
-- **Reembolso o ingreso:** si es un Bizum recibido, la bandeja pregunta primero si es la devolución de un gasto compartido (resta gasto de esa categoría) o un ingreso extra (suma a un sobre).
+- **Reembolso o ingreso:** si es un Bizum recibido, la bandeja pregunta primero si es la devolución de un gasto compartido (reduce lo que te deben), la devolución de una compra (resta gasto de su categoría) o un ingreso extra (suma a un sobre).
 - **Entrada manual:** desde el móvil puedes añadir dinero en efectivo y elegir su sobre en el mismo paso.
 - **Reglas:** los ingresos que se repiten pueden tener regla, igual que los gastos (por ejemplo, ventas de segunda mano → Caprichos).
 
@@ -124,7 +124,27 @@ Cuando pagas tú algo de grupo, tu sobre solo cuenta tu parte; los Bizum que te 
 - **Traspaso manual:** en cualquier momento del mes puedes mover dinero de un sobre a otro; queda anotado en el libro del sobre.
 - **Bandeja sin vaciar al cierre:** lo pendiente cuenta como «Sin clasificar» y el cierre se recalcula cuando lo clasificas.
 - **Préstamos encadenados:** si un sobre cierra en préstamo tres meses seguidos, Abaqo avisa y propone subir su asignación.
-- **Devoluciones:** el reembolso de una compra resta gasto de su categoría; no cuenta como ingreso.
+- **Devoluciones:** el reembolso de una compra resta gasto de su categoría; no cuenta como ingreso. Cuenta en el mes en que llega la devolución, no en el de la compra.
+
+### Decisiones de detalle del motor
+
+La especificación completa, con ejemplos numéricos, está en la skill `envelope-rules`. Estas son las decisiones que completan este documento; el criterio es que el usuario pueda mover su dinero con libertad y que lo automático sea prudente.
+
+- **Apertura de mes:** al abrir el mes se escriben, por este orden, las asignaciones, lo no asignado a Ahorro y las cuotas de financiación; se fija el suelo de Ahorro del mes y se calcula el plan de transferencias. Se puede repetir mientras el mes esté abierto.
+- **Porcentajes:** se calculan sobre el presupuesto base del mes, nunca sobre los ingresos extra.
+- **Traspaso manual:** como mucho, lo disponible en el sobre origen; nunca crea dinero. Desde Ahorro, lo que hay por encima del suelo se mueve sin más y bajar del suelo pide confirmación.
+- **Suelo de Ahorro:** importe fijo o un número de meses de gasto medio (últimos 3 meses cerrados); se fija al abrir el mes. El gasto real de Ahorro y de sus subcategorías no se puede rechazar: si lo deja por debajo del suelo, el déficit se arrastra y salta un aviso.
+- **Cambio de mes:** al empezar el mes, Abaqo cierra el anterior y abre el nuevo sin intervención; el cierre guiado es un repaso de ese resultado. La configuración de cada mes cerrado queda guardada, así que recalcular un mes antiguo nunca usa las reglas de hoy.
+- **Primer mes:** al instalar no hay asignación; repartes una vez el dinero que ya tienes y las asignaciones empiezan el mes siguiente.
+- **Traspasos de sobrante sin cadenas:** el sobre destino de un Traspaso tiene que ser Acumulativo.
+- **Gastos compartidos:** lo que te deben se calcula, no se guarda; si te pagan de más o llega una devolución cuando ya han pagado todos, queda como «debes».
+- **Archivar sobres:** un sobre no se borra, se archiva, y solo con saldo 0, sin financiaciones ni objetivos pendientes.
+- **Ladrones en cadena:** un ladrón solo toma de su propia víctima y no hay cascada. Si la víctima también cierra en negativo, no tiene nada que dar y el faltante pasa a préstamo del ladrón.
+- **Ahorro e Inversión:** siempre acumulan. Ahorro no tiene regla de faltante (arrastra su saldo tal cual) e Inversión no presta ni puede ser víctima de un ladrón.
+- **Sin clasificar:** lo pendiente en la bandeja al cierre no resta de ningún sobre; se guarda aparte y entra en el cuadre. El cierre nunca se bloquea por tener la bandeja llena.
+- **Financiación:** la primera cuota se cobra al abrir el mes siguiente. Si después bajas la asignación y las cuotas superan la mitad, las financiaciones existentes siguen igual y solo se rechazan las nuevas.
+- **Préstamos encadenados:** cuenta cualquier préstamo, también el que deja un ladrón que no pudo cubrir todo. La asignación propuesta es el gasto medio de esos tres meses, redondeado al euro superior.
+- **Sueldo y cuadre:** los sobres reciben el presupuesto al abrir el mes aunque el sueldo llegue otro día; esa diferencia temporal se lleva aparte y nunca aparece como descuadre. Si el sueldo supera el presupuesto, el exceso se puede repartir como ingreso extra. Las transferencias internas se emparejan con el mismo importe y hasta 3 días de diferencia. Un descuadre aceptado como ajuste va a Ahorro.
 
 ### Cuentas reales y cuadre
 
@@ -136,7 +156,7 @@ Los sobres no están atados a una cuenta: Abaqo suma el saldo de todas tus cuent
 | Santander diario | Tarjeta y gasto | Automático (Enable Banking) |
 | Trade Republic (ahorro remunerado) | Ahorro y pendiente de invertir | Automático si Enable Banking lo ofrece; si no, saldo a mano |
 
-- **Fórmula:** dinero real en cuentas = suma de los sobres − lo que te deben (gastos compartidos sin cobrar).
+- **Fórmula:** dinero real en cuentas = suma de los sobres + ingresos extra sin asignar − lo que te deben − gasto sin clasificar + saldo de financiación del sueldo (sueldo ya cobrado y aún no repartido, o presupuesto ya repartido y aún no cobrado).
 - **Transferencias internas:** mover dinero entre tus cuentas no es gasto ni ingreso; Abaqo las empareja por importe y fecha.
 - **Descuadre:** si la diferencia no es cero, la pantalla «Cuadre» la muestra y te deja asignarla a un sobre o marcarla como ajuste.
 - **Intereses de la cuenta remunerada:** entran como ingreso extra con una regla hacia Ahorro.
@@ -145,9 +165,9 @@ Los sobres no están atados a una cuenta: Abaqo suma el saldo de todas tus cuent
 
 ### Suelo protegido de Ahorro
 
-El colchón de emergencia no es un sobre aparte, sino un suelo dentro de Ahorro: un importe (por ejemplo, tres meses de gasto) por debajo del cual nada puede bajarlo solo.
+El colchón de emergencia no es un sobre aparte, sino un suelo dentro de Ahorro: un importe (por ejemplo, tres meses de gasto) por debajo del cual ningún mecanismo automático puede bajarlo.
 
-- Ladrones, subcategorías y financiaciones solo usan lo que hay por encima del suelo; lo que no puedan cubrir pasa a préstamo.
+- Ladrones y financiaciones solo usan lo que hay por encima del suelo; lo que no puedan cubrir pasa a préstamo. El gasto real de Ahorro y de sus subcategorías no se puede rechazar: si lo deja por debajo del suelo, el déficit se arrastra y salta un aviso.
 - Bajar del suelo exige un traspaso manual con confirmación.
 - La pantalla del mes muestra cuántos meses de gasto cubre tu colchón.
 
@@ -155,8 +175,8 @@ El colchón de emergencia no es un sobre aparte, sino un suelo dentro de Ahorro:
 
 Una compra grande que un sobre no puede pagar se financia con otro sobre y se devuelve a plazos, sin intereses.
 
-1. **Ejemplo:** mesa de 500 € en Caprichos, que tiene 100 €. Ahorro presta 400 € y eliges devolverlos en 4 meses.
-2. **Cada mes:** al abrir el mes, 100 € de la asignación de Caprichos vuelven a Ahorro hasta saldar la deuda. Se puede adelantar el pago.
+1. **Ejemplo:** mesa de 500 € en Caprichos, que tiene 100 € disponibles y una asignación de 200 € al mes. Ahorro presta 400 € y eliges devolverlos en 4 meses.
+2. **Cada mes:** al abrir el mes, 100 € de la asignación de Caprichos vuelven a Ahorro hasta saldar la deuda. Se puede adelantar el pago: acorta el plazo y mantiene la cuota.
 3. **Diferencia con Préstamo:** el préstamo descuenta todo el exceso al mes siguiente; la financiación lo reparte en los meses que tú decides.
 
 **Límites**
@@ -187,7 +207,8 @@ Un objetivo es una meta de saldo sobre un sobre, con un margen, y te avisa cuand
 - **Ejemplo:** «Móvil nuevo» en Caprichos, meta de 500 € y margen de 100 €.
 - **Avisos (interpretación propuesta):** el primero al llegar a 400 € (meta − margen, «ya puedes mirar ofertas») y el segundo al llegar a 500 €.
 - **Requisito:** el sobre debe tener la regla de sobrante Acumulativo; si no, nunca crecería entre meses, y la app lo impide al crear el objetivo.
-- **Cumplimiento:** cuando hagas la compra y se clasifique en esa categoría, el objetivo se marca como cumplido y el sobre sigue su curso.
+- **Cumplimiento:** cuando se clasifique en esa categoría una compra de al menos meta − margen con el objetivo ya alcanzado o dentro del margen, el objetivo se marca como cumplido (se puede deshacer) y el sobre sigue su curso. Un gasto pequeño en la misma categoría no lo cumple; también puedes marcarlo a mano.
+- **Varios objetivos en un sobre:** se apilan por orden de creación; el segundo empieza a llenarse cuando el primero está cubierto.
 - **En el móvil:** una barra de progreso por objetivo dentro del resumen del mes.
 
 ## Inversiones
@@ -288,14 +309,17 @@ Firefly III es la fuente de verdad de las transacciones. Abaqo guarda en su prop
 | --- | --- |
 | `categories` | Categoría enlazada a la de Firefly, tipo (sobre o subcategoría), sobre padre, asignación mensual, regla de sobrante y de faltante, sobre destino o víctima |
 | `budget_months` | Cada mes: presupuesto, ingresos extra, fechas, estado (abierto o cerrado) y foto del cierre |
-| `envelope_entries` | Libro de movimientos de cada sobre: asignación, ingreso extra, arrastre, traspaso, préstamo, ladrón o ajuste |
+| `envelope_entries` | Libro de movimientos de cada sobre: saldo inicial, asignación, ingreso extra, arrastre, traspaso (manual o de cierre), préstamo, ladrón, financiación y cuotas, o ajuste; cada uno con su origen (usuario, apertura o cierre) |
+| `financings` | Financiación interna: sobre que recibe, sobre que presta, importe, plazo y mes de inicio |
+| `accounts` | Cuenta de Firefly, papel (nómina, diario, ahorro) y saldo a mano si no se sincroniza |
+| `alerts` | Avisos: préstamos encadenados, Ahorro bajo el suelo, objetivos y presupuesto |
 | `goals` | Objetivo por categoría: meta, margen, avisos enviados, estado |
 | `inbox_items` | Transacción pendiente, sugerencia de Jev, probabilidad y estado |
 | `classification_log` | Cada decisión: origen (regla, Jev o usuario), categoría, probabilidad y fecha |
 | `merchant_keys` | Clave normalizada del comercio, historial de categorías y regla creada |
-| `settings` | Umbral, proveedor del clasificador, día de inicio del mes, presupuesto por defecto |
+| `settings` | Umbral, proveedor del clasificador, día de inicio del mes, presupuesto por defecto, sobre de Ahorro y de Inversión, suelo protegido |
 
-Gastos compartidos: tabla `shared_expenses` (gasto original, personas, tu parte, importe pendiente, estado) y tabla `reimbursement_links` (cada Bizum enlazado a su gasto).
+Gastos compartidos: tabla `shared_expenses` (gasto original, personas, tu parte, importe pendiente, estado) y tabla `reimbursement_links` (cada Bizum enlazado a su gasto). Devoluciones: tabla `refund_links` (cada devolución enlazada a su categoría y, si se conoce, a su compra).
 
 El saldo de un sobre nunca se guarda como número suelto: se calcula sumando `envelope_entries` y los gastos del mes en Firefly. Así un cierre siempre se puede recalcular.
 
@@ -341,7 +365,7 @@ abaqo/
 
 ## Desarrollo con agentes
 
-El desarrollo lo hace un equipo de Claude Code: una sesión principal que hace de jefe técnico y seis subagentes especializados, cada uno con sus skills. Todo vive en el repo (`.claude/`), así que la configuración agéntica también se publica y forma parte del valor del proyecto.
+El desarrollo lo hace un equipo de Claude Code: una sesión principal que hace de jefe técnico y seis subagentes especializados, cada uno con sus skills. El revisor es de solo lectura: un hook limita su Bash a `git status`, `git diff`, `git log` y `git show`. Todo vive en el repo (`.claude/`), así que la configuración agéntica también se publica y forma parte del valor del proyecto.
 
 &#91;embedded content: equipo de agentes · 1 sesión principal, 6 subagentes\]
 
@@ -357,6 +381,7 @@ El desarrollo lo hace un equipo de Claude Code: una sesión principal que hace d
 | `mobile-ui` | Patrones de la PWA, componentes, accesibilidad, diseño para una mano | Frontend PWA |
 | `testing` | Vitest, Playwright, datos ficticios, cómo levantar el entorno `dev` | QA, todos |
 | `tdd` | Ciclo test primero para la lógica de dominio | Motor de sobres |
+| `spatial-glass-dashboard` | Estilo visual de cristal (tipo visionOS) para el dashboard de escritorio | Frontend PWA |
 
 **El resto de la configuración**
 
@@ -394,7 +419,7 @@ Antes de la fase 1 va una fase 0: preparar el equipo de agentes (CLAUDE.md, suba
 
 &#91;embedded content: hoja de ruta · 5 fases, 1 hito\]
 
-Egl registro de decisiones de la fase 1 da las cifras del post: porcentaje clasificado automáticamente y coste real de Jev.
+El registro de decisiones de la fase 1 da las cifras del post: porcentaje clasificado automáticamente y coste real de Jev.
 
 ## Decisiones
 
