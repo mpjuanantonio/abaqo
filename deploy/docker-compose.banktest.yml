@@ -1,0 +1,161 @@
+# Abaqo BANK TEST stack. OWNER ONLY: real Santander data through Enable Banking.
+#
+# Run it from your OWN clone of the repo, under your OWN Linux user (your own Docker daemon),
+# never from the agent user's checkout. Agents never see this data or these credentials.
+# Standalone on purpose: its own Compose project (`abaqo-banktest`), no profiles, and
+# EXTERNAL volumes, so nothing done to the `dev` stack (docker-compose.yml) can touch it and
+# `docker compose down -v` can never delete the bank data.
+#
+# One-time setup (see deploy/README.md, "Bank test (owner only)"):
+#   docker volume create abaqo_banktest_pgdata
+#   docker volume create abaqo_banktest_firefly_upload
+# Always pass your env file explicitly (it lives OUTSIDE any repo, e.g. ~/.config/abaqo/banktest.env):
+#   docker compose -f deploy/docker-compose.banktest.yml --env-file ~/.config/abaqo/banktest.env up -d
+#
+# Every secret comes from that env file by interpolation; a missing required one makes
+# Compose stop with a message before any container starts. Variables: deploy/.env.example.
+# There is NO Firefly token in this file: the importer has no login of its own, so it must not
+# hold a token. Paste the token in the importer UI each session.
+#
+# Image tags: KEEP IN SYNC WITH docker-compose.yml. Verified 2026-11-14:
+#   fireflyiii/core          version-6.7.9  https://github.com/firefly-iii/firefly-iii/releases
+#   fireflyiii/data-importer version-2.3.5  https://github.com/firefly-iii/data-importer/releases
+#   postgres                 18-alpine      https://hub.docker.com/_/postgres
+# Importer variables (tag v2.3.5): https://github.com/firefly-iii/data-importer/blob/v2.3.5/.env.example
+# Enable Banking tutorial: https://github.com/firefly-iii/docs/blob/main/docs/docs/tutorials/data-importer/eb.md
+
+name: abaqo-banktest
+
+x-postgres: &postgres
+  image: postgres:18-alpine
+  restart: unless-stopped
+  command:
+    ['postgres', '-c', 'shared_buffers=64MB', '-c', 'max_connections=40', '-c', 'timezone=UTC']
+  healthcheck:
+    # Real TCP queries: the entrypoint's temporary init server only listens on the unix socket,
+    # so this passes only after init finished and both databases accept queries.
+    test:
+      - CMD-SHELL
+      - >-
+        export PGPASSWORD="$$POSTGRES_PASSWORD";
+        psql -h 127.0.0.1 -U postgres -d firefly -Atc "select 1" &&
+        psql -h 127.0.0.1 -U postgres -d abaqo -Atc "select 1"
+    interval: 5s
+    timeout: 5s
+    retries: 20
+    start_period: 10s
+  mem_limit: 256m
+
+x-firefly: &firefly
+  image: fireflyiii/core:version-6.7.9
+  restart: unless-stopped
+  healthcheck:
+    test: ['CMD-SHELL', 'curl -fsS http://localhost:8080/health >/dev/null']
+    interval: 10s
+    timeout: 5s
+    retries: 30
+    start_period: 60s
+  mem_limit: 512m
+
+x-importer: &importer
+  image: fireflyiii/data-importer:version-2.3.5
+  restart: unless-stopped
+  healthcheck:
+    test: ['CMD-SHELL', 'curl -fsS http://localhost:8080/health >/dev/null']
+    interval: 10s
+    timeout: 5s
+    retries: 20
+    start_period: 30s
+  mem_limit: 256m
+
+services:
+  banktest-postgres:
+    <<: *postgres
+    environment:
+      # Postgres always runs in UTC; Madrid time lives in Firefly and the importer.
+      TZ: UTC
+      PGTZ: UTC
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your banktest env file}
+      FIREFLY_DB_PASSWORD: ${FIREFLY_DB_PASSWORD:?set FIREFLY_DB_PASSWORD in your banktest env file}
+      ABAQO_DB_PASSWORD: ${ABAQO_DB_PASSWORD:?set ABAQO_DB_PASSWORD in your banktest env file}
+    # No host port: only the other banktest containers reach it.
+    volumes:
+      - abaqo_banktest_pgdata:/var/lib/postgresql
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    networks: [banktest]
+
+  banktest-firefly:
+    <<: *firefly
+    # Preflight: Firefly needs an APP_KEY of exactly 32 characters. Fail with a clear message
+    # before the real entrypoint (docker-php-serversideup-entrypoint, CMD /init) runs.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        if [ "$${#APP_KEY}" -ne 32 ]; then
+        echo "FIREFLY_APP_KEY must be exactly 32 characters (openssl rand -hex 16)" >&2; exit 1; fi;
+        exec docker-php-serversideup-entrypoint "$$@"
+      - sh
+    command: ['/init']
+    environment:
+      APP_KEY: ${FIREFLY_APP_KEY:?set FIREFLY_APP_KEY (32 chars) in your banktest env file}
+      STATIC_CRON_TOKEN: ${FIREFLY_STATIC_CRON_TOKEN:?set FIREFLY_STATIC_CRON_TOKEN (32 chars) in your banktest env file}
+      APP_ENV: production
+      APP_DEBUG: 'false'
+      SITE_OWNER: ${FIREFLY_SITE_OWNER:-owner@example.invalid}
+      DEFAULT_LANGUAGE: es_ES
+      TZ: Europe/Madrid
+      APP_URL: ${FIREFLY_PUBLIC_URL:-http://127.0.0.1:28080}
+      DB_CONNECTION: pgsql
+      DB_HOST: banktest-postgres
+      DB_PORT: '5432'
+      DB_DATABASE: firefly
+      DB_USERNAME: firefly
+      DB_PASSWORD: ${FIREFLY_DB_PASSWORD:?set FIREFLY_DB_PASSWORD in your banktest env file}
+      # Registration: Firefly's single_user_mode defaults to true (config/firefly.php, v6.7.9),
+      # so the register form closes as soon as the first user exists.
+    ports:
+      - '127.0.0.1:28080:8080'
+    volumes:
+      - abaqo_banktest_firefly_upload:/var/www/html/storage/upload
+    depends_on:
+      banktest-postgres:
+        condition: service_healthy
+    networks: [banktest]
+
+  banktest-importer:
+    <<: *importer
+    environment:
+      FIREFLY_III_URL: http://banktest-firefly:8080
+      # Where the browser is sent when the importer links back to Firefly.
+      VANITY_URL: ${FIREFLY_PUBLIC_URL:-http://127.0.0.1:28080}
+      # DELIBERATELY NO FIREFLY_III_ACCESS_TOKEN: the importer has no authentication, so a preset
+      # token would let anyone who reaches its port use your Firefly. Paste the token in its UI.
+      #
+      # Behind `tailscale serve` the importer must trust X-Forwarded-* so that it builds
+      # https://<host>/eb-callback (see deploy/README.md).
+      TRUSTED_PROXIES: '**'
+      TZ: Europe/Madrid
+      ENABLE_BANKING_APP_ID: ${ENABLE_BANKING_APP_ID:-}
+      ENABLE_BANKING_PRIVATE_KEY: ${ENABLE_BANKING_PRIVATE_KEY:-}
+      ENABLE_BANKING_IMPORT_IP_HEADER: ${ENABLE_BANKING_IMPORT_IP_HEADER:-false}
+      ENABLE_BANKING_IMPORT_IP: ${ENABLE_BANKING_IMPORT_IP:-127.0.0.1}
+    ports:
+      - '127.0.0.1:28081:8080'
+    depends_on:
+      banktest-firefly:
+        condition: service_healthy
+    networks: [banktest]
+
+networks:
+  banktest:
+    name: abaqo_banktest_net
+
+volumes:
+  # External: created once by the owner with `docker volume create`, removed only with an
+  # explicit `docker volume rm`. `down -v` never deletes them.
+  abaqo_banktest_pgdata:
+    external: true
+  abaqo_banktest_firefly_upload:
+    external: true
