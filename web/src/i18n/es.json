@@ -1,0 +1,9 @@
+{
+  "app": { "name": "Abaqo", "tagline": "Tu presupuesto por sobres, con el buzón primero." },
+  "status": {
+    "title": "Estado del servidor",
+    "loading": "Comprobando la API…",
+    "ok": "API operativa",
+    "unreachable": "API no disponible"
+  }
+}

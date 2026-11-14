@@ -1,0 +1,9 @@
+{
+  "app": { "name": "Abaqo", "tagline": "Inbox-first envelope budgeting." },
+  "status": {
+    "title": "Server status",
+    "loading": "Checking the API…",
+    "ok": "API reachable",
+    "unreachable": "API unreachable"
+  }
+}

@@ -1,0 +1,27 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# Secrets and real data: never commit
+.env
+.env.*
+!.env.example
+*.pem
+deploy/secrets/
+data/real/
+backups/
+
+# Tests
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# Local tooling
+.claude/settings.local.json
+.claude/worktrees/
+.DS_Store
+*.log
