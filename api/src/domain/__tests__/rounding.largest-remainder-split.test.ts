@@ -40,14 +40,25 @@ describe('largest-remainder split', () => {
     ]);
   });
 
-  it('compares numeric ids numerically, not as text', () => {
-    const result = splitLargestRemainder(1, [
-      { id: 10, weight: 1, sortOrder: 0 },
-      { id: 9, weight: 1, sortOrder: 0 },
+  it('compares ids by code unit, so with UUID v7 ids the older row wins', () => {
+    // '10' < '9' by code unit; a UUID v7 starts with its timestamp, so lower = older.
+    expect(splitLargestRemainder(1, [part('9', 1), part('10', 1)])).toEqual([
+      { id: '9', cents: 0 },
+      { id: '10', cents: 1 },
     ]);
-    expect(result).toEqual([
-      { id: 10, cents: 0 },
-      { id: 9, cents: 1 },
+    const older = '0190b5c2-1a2b-7c3d-8e4f-0a1b2c3d4e5f';
+    const newer = '019a8f2e-7c41-7d3a-9b2e-5f1c0a7d4e21';
+    expect(splitLargestRemainder(1, [part(newer, 1), part(older, 1)])).toEqual([
+      { id: newer, cents: 0 },
+      { id: older, cents: 1 },
+    ]);
+  });
+
+  it('compares by code unit, not by locale (uppercase sorts before lowercase)', () => {
+    // localeCompare would put 'a' before 'B'; code units put 'B' (0x42) before 'a' (0x61).
+    expect(splitLargestRemainder(1, [part('a', 1), part('B', 1)])).toEqual([
+      { id: 'a', cents: 0 },
+      { id: 'B', cents: 1 },
     ]);
   });
 
@@ -123,6 +134,16 @@ describe('largest-remainder split', () => {
       expect(() => splitLargestRemainder(1, [part('a', 1, Number.NaN), part('b', 1)])).toThrow(
         RangeError,
       );
+    });
+
+    it('an empty-string id', () => {
+      expect(() => splitLargestRemainder(1, [part('', 1), part('b', 1)])).toThrow(RangeError);
+    });
+
+    it('a non-string id passed in from untyped code', () => {
+      expect(() =>
+        splitLargestRemainder(1, [{ id: 9 as never, weight: 1, sortOrder: 0 }, part('b', 1)]),
+      ).toThrow(RangeError);
     });
 
     it('duplicate ids', () => {

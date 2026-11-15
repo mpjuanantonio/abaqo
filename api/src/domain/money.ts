@@ -13,20 +13,25 @@ export function assertCents(value: number, label = 'amount'): number {
   return value;
 }
 
-/** Ids are envelope / participant / instalment identifiers. Numbers compare numerically. */
-export type PartId = string | number;
+/**
+ * Ids of envelopes, participants or instalments. In Abaqo every row id is a UUID v7 string (see
+ * the `db` skill). Ids are compared by UTF-16 code unit (plain `<`, never `localeCompare`), which
+ * is a total order; for UUID v7 the timestamp comes first, so the lower id is the older row.
+ * Empty strings are rejected.
+ */
+export type PartId = string;
 
 /** One part of a largest-remainder split. */
-export interface SplitPart<Id extends PartId = PartId> {
-  readonly id: Id;
+export interface SplitPart {
+  readonly id: PartId;
   /** Non-negative safe integer. Shares are proportional to it. */
   readonly weight: number;
   /** First tie-break for equal remainders: lower wins. Then the lower `id`. */
   readonly sortOrder: number;
 }
 
-export interface SplitResult<Id extends PartId = PartId> {
-  readonly id: Id;
+export interface SplitResult {
+  readonly id: PartId;
   readonly cents: number;
 }
 
@@ -40,12 +45,13 @@ export interface SplitResult<Id extends PartId = PartId> {
  * of its exact share. A part with weight 0 always gets 0.
  *
  * @throws RangeError if the total is not a non-negative safe integer, there are no parts, a
- *   weight is not a non-negative safe integer, every weight is 0, or ids repeat.
+ *   weight is not a non-negative safe integer, every weight is 0, an id is not a non-empty
+ *   string, or ids repeat.
  */
-export function splitLargestRemainder<Id extends PartId>(
+export function splitLargestRemainder(
   totalCents: number,
-  parts: readonly SplitPart<Id>[],
-): SplitResult<Id>[] {
+  parts: readonly SplitPart[],
+): SplitResult[] {
   assertNonNegativeCents(totalCents, 'totalCents');
   if (parts.length === 0) {
     throw new RangeError('cannot split an amount among zero parts');
@@ -84,15 +90,20 @@ export function splitEqually(totalCents: number, count: number): number[] {
   if (!Number.isSafeInteger(count) || count < 1) {
     throw new RangeError(`count must be a positive integer, got ${String(count)}`);
   }
-  const parts = Array.from({ length: count }, (_, i) => ({ id: i, weight: 1, sortOrder: i }));
+  // sortOrder = index is distinct for every part, so the ids never decide a tie here.
+  const parts = Array.from({ length: count }, (_, i) => ({
+    id: String(i),
+    weight: 1,
+    sortOrder: i,
+  }));
   return splitLargestRemainder(totalCents, parts).map((r) => r.cents);
 }
 
 /** 100 % in basis points. */
 export const FULL_BP = 10_000;
 
-export interface PercentEnvelope<Id extends PartId = PartId> {
-  readonly id: Id;
+export interface PercentEnvelope {
+  readonly id: PartId;
   readonly sortOrder: number;
   /** Integer basis points, 0..10000 (1 % = 100 bp). */
   readonly percentBp: number;
@@ -109,12 +120,12 @@ export interface PercentEnvelope<Id extends PartId = PartId> {
  * Only percentages: fixed amounts, the remainder to savings and budget validation are not here.
  *
  * @throws RangeError if the budget is not a non-negative safe integer, a bp is not an integer in
- *   0..10000, the bp sum exceeds 10000, or ids repeat.
+ *   0..10000, the bp sum exceeds 10000, an id is not a non-empty string, or ids repeat.
  */
-export function resolvePercentages<Id extends PartId>(
+export function resolvePercentages(
   budgetCents: number,
-  envelopes: readonly PercentEnvelope<Id>[],
-): SplitResult<Id>[] {
+  envelopes: readonly PercentEnvelope[],
+): SplitResult[] {
   assertNonNegativeCents(budgetCents, 'budgetCents');
   assertValidKeys(envelopes);
   let bpSum = 0;
@@ -168,8 +179,8 @@ function floorDiv(a: bigint, b: bigint): bigint {
   return a % b < 0n ? q - 1n : q;
 }
 
-interface Quota<Id extends PartId> {
-  readonly id: Id;
+interface Quota {
+  readonly id: PartId;
   readonly sortOrder: number;
   /** Exact share of the part is `numerator / denominator` cents. */
   readonly numerator: bigint;
@@ -180,11 +191,11 @@ interface Quota<Id extends PartId> {
  * Requires `sum(floor(share)) <= totalCents <= sum(floor(share)) + count(share has a fraction)`,
  * which both callers guarantee.
  */
-function apportion<Id extends PartId>(
+function apportion(
   totalCents: number,
-  quotas: readonly Quota<Id>[],
+  quotas: readonly Quota[],
   denominator: bigint,
-): SplitResult<Id>[] {
+): SplitResult[] {
   const floors = quotas.map((q) => q.numerator / denominator);
   const remainders = quotas.map((q) => q.numerator % denominator);
   let left = BigInt(totalCents) - floors.reduce((a, b) => a + b, 0n);
@@ -194,8 +205,8 @@ function apportion<Id extends PartId>(
     const ri = remainders[i] ?? 0n;
     const rj = remainders[j] ?? 0n;
     if (ri !== rj) return ri > rj ? -1 : 1;
-    const qi = quotas[i] as Quota<Id>;
-    const qj = quotas[j] as Quota<Id>;
+    const qi = quotas[i] as Quota;
+    const qj = quotas[j] as Quota;
     if (qi.sortOrder !== qj.sortOrder) return qi.sortOrder - qj.sortOrder;
     return compareIds(qi.id, qj.id);
   });
@@ -213,11 +224,9 @@ function apportion<Id extends PartId>(
   return quotas.map((q, i) => ({ id: q.id, cents: Number(cents[i] ?? 0n) }));
 }
 
+/** Code-unit order (see `PartId`): a total order, independent of locale and input order. */
 function compareIds(a: PartId, b: PartId): number {
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
-  const sa = String(a);
-  const sb = String(b);
-  return sa < sb ? -1 : sa > sb ? 1 : 0;
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function assertValidKeys(
@@ -229,6 +238,9 @@ function assertValidKeys(
       throw new RangeError(
         `sortOrder of part ${String(p.id)} must be a safe integer, got ${String(p.sortOrder)}`,
       );
+    }
+    if (typeof p.id !== 'string' || p.id === '') {
+      throw new RangeError(`part id must be a non-empty string, got ${JSON.stringify(p.id)}`);
     }
     if (seen.has(p.id)) throw new RangeError(`duplicate part id ${String(p.id)}`);
     seen.add(p.id);

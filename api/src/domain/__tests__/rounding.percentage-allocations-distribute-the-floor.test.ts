@@ -82,6 +82,10 @@ describe('percentage allocations distribute floor(budget x sum of bp / 10000)', 
       expect(() => resolvePercentages(10.5, [pctEnvelope('a', 100)])).toThrow(RangeError);
     });
 
+    it('an empty-string envelope id', () => {
+      expect(() => resolvePercentages(1000, [pctEnvelope('', 100)])).toThrow(RangeError);
+    });
+
     it('duplicate envelope ids', () => {
       expect(() =>
         resolvePercentages(1000, [pctEnvelope('a', 100), pctEnvelope('a', 100)]),

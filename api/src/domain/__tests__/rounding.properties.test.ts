@@ -42,6 +42,45 @@ describe('rounding invariants (property tests)', () => {
     );
   });
 
+  it('the extra cents go to the largest remainders, ties to the lower (sortOrder, id)', () => {
+    // Small weights and sortOrders produce many remainder and sortOrder ties; ids e0..e11 are not
+    // in code-unit order by index ('e10' < 'e2'), so input order and id order differ.
+    const tieHeavyParts = fc
+      .array(
+        fc.record({
+          weight: fc.integer({ min: 0, max: 6 }),
+          sortOrder: fc.integer({ min: 0, max: 2 }),
+        }),
+        { minLength: 2, maxLength: 12 },
+      )
+      .filter((ps) => ps.some((p) => p.weight > 0))
+      .map((ps) => ps.map((p, i) => ({ id: `e${i}`, ...p })));
+    const precedes = (
+      a: { sortOrder: number; id: string },
+      b: { sortOrder: number; id: string },
+    ): boolean => a.sortOrder < b.sortOrder || (a.sortOrder === b.sortOrder && a.id < b.id);
+
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 10_000 }), tieHeavyParts, (t, parts) => {
+        const result = splitLargestRemainder(t, parts);
+        const weightSum = parts.reduce((s, p) => s + p.weight, 0);
+        const info = parts.map((p, i) => {
+          const floor = Math.floor((t * p.weight) / weightSum);
+          const remainder = (t * p.weight) % weightSum;
+          const cents = result[i]?.cents ?? Number.NaN;
+          expect([floor, floor + 1]).toContain(cents);
+          return { ...p, remainder, gotCeiling: cents === floor + 1 };
+        });
+        for (const c of info.filter((x) => x.gotCeiling)) {
+          for (const f of info.filter((x) => !x.gotCeiling && x.remainder > 0)) {
+            const ok = c.remainder > f.remainder || (c.remainder === f.remainder && precedes(c, f));
+            expect(ok, `${c.id} got the ceiling over ${f.id}`).toBe(true);
+          }
+        }
+      }),
+    );
+  });
+
   it('an equal split sums to the total, non-increasing, max - min <= 1', () => {
     fc.assert(
       fc.property(total, fc.integer({ min: 1, max: 50 }), (t, n) => {
@@ -58,7 +97,7 @@ describe('rounding invariants (property tests)', () => {
     const envelopes = fc
       .array(fc.integer({ min: 0, max: 10_000 }), { minLength: 0, maxLength: 12 })
       .filter((bps) => bps.reduce((s, b) => s + b, 0) <= 10_000)
-      .map((bps) => bps.map((percentBp, i) => ({ id: i, sortOrder: i % 3, percentBp })));
+      .map((bps) => bps.map((percentBp, i) => ({ id: `e${i}`, sortOrder: i % 3, percentBp })));
     fc.assert(
       fc.property(total, envelopes, (budget, envs) => {
         const result = resolvePercentages(budget, envs);
