@@ -1,5 +1,7 @@
 # Abaqo
 
+[![CI](https://github.com/mpjuanantonio/abaqo/actions/workflows/ci.yml/badge.svg)](https://github.com/mpjuanantonio/abaqo/actions/workflows/ci.yml)
+
 > **Estado:** en desarrollo temprano (fase 0). Todavía no es utilizable.
 > **Status:** early development (phase 0). Not usable yet.
 
