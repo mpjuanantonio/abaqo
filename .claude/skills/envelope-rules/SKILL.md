@@ -21,10 +21,19 @@ are never written.
 
 - Splitting an amount in parts (percentage allocations, extra-income splits, shared expenses,
   installments) uses largest remainder. Ties go to the lower `sort_order`, then the lower id;
-  for installments, to the earlier one.
-- Percentage allocations: the total to distribute is `floor(budget x sum of bp / 10000)`.
+  for installments, to the earlier one. Ids are UUID v7 strings compared by code unit, so the
+  lower id is the older row.
+- Percentage allocations: the total to distribute is `floor(budget x sum of bp / 10000)`. Each
+  envelope first gets the floor of its own exact share `budget x bp / 10000`; the cents left go
+  one each to the largest remainders of those exact shares. So every envelope gets the floor or
+  the ceiling of its real percentage (budget 1.00 at 60 % and 39.99 % gives 0.60 and 0.39).
+- Equal split with a preferred part (the user's share in a shared expense, the first
+  installment): the preferred part goes first, the others keep the order given. Extra cents go
+  one each from the first part on, so no part differs from another by more than one cent
+  (0.05 among 3 gives 0.02, 0.02, 0.01).
 - Means of money (floor in `months` mode, promotion and chained-loan suggestions) divide with
-  round-half-up to the cent.
+  round-half-up to the cent. Half goes toward positive infinity, also for negative means
+  (-500.5 cents gives -500).
 - A percentage equivalent of an amount uses the current month's base budget, rounded up to the
   next basis point.
 
@@ -40,7 +49,11 @@ are never written.
   transaction. No user action is needed. The guided close is a review of that result and may
   trigger re-runs. A transaction always belongs to the month of its date.
 - A change of `month_start_day` applies from the next month: the current month ends the day
-  before the new start day's next occurrence.
+  before the first occurrence of the new start day that is later than the day of the change.
+  That transition month can be shorter or longer than usual (changing from 1 to 25 on
+  10 November: the month that began on 1 November ends on 24 November; changing from 25 to 1
+  on 10 November: the month that began on 25 October ends on 30 November). Its allocations are
+  not prorated.
 - Configuration is live while a month is open. At close, the configuration used (every
   category's kind, parent, allocation, rules, target, victim and sort order, plus the special
   envelope ids) is frozen in the month's `config_snapshot`. Re-running a closed month always
